@@ -1,0 +1,13 @@
+# RAG (Chroma Cloud + embeddings)
+chromadb
+langchain
+langchain-chroma
+langchain-openai
+langchain-text-splitters
+tiktoken
+
+# Env
+python-dotenv
+
+# Dev
+pytest
