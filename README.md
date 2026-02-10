@@ -2,6 +2,8 @@
 
 Index `data/*.txt` into Chroma Cloud (dense embeddings only). Collection name: `tb_all`.
 
+[Chroma dashboard](https://www.trychroma.com/hunter)
+
 ## Setup
 
 ```bash
