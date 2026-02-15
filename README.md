@@ -41,3 +41,9 @@ Repo secrets: `OPENAI_API_KEY`, `CHROMA_API_KEY`, `CHROMA_TENANT`.
 ## Pipeline
 
 1. **Ingest** — Read `data/*.txt`, normalize, chunk, embed (OpenAI), upsert to Chroma Cloud collection `tb_all`.
+
+
+
+
+### resume
+Convert Resume Into Structured Knowledge as json with download link

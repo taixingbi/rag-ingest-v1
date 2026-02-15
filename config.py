@@ -34,6 +34,13 @@ CHROMA_SETTINGS = {
     "collection_name": "tb_all",
 }
 
+# Per-file collection mapping (data/*.json → Chroma collection)
+FILE_TO_COLLECTION = {
+    "profile.json": "taixing_identity",
+    "resume.json": "taixing_resume",
+    "qa.json": "taixing_qa",
+}
+
 
 def get_chroma_client():
     """Create Chroma Cloud client from config."""

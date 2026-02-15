@@ -1,5 +1,5 @@
+import json
 import os
-import sys
 import unicodedata
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -7,36 +7,24 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Set ENV and CHROMA_DATABASE from CLI when run as script (CLI wins over .env)
+from cli import setup_cli_env
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2 or sys.argv[1] not in ("dev", "qa", "prod"):
-        sys.exit("Usage: python ingest.py {dev|qa|prod} [save <database_name>]")
-    _env = sys.argv[1]
-    os.environ["ENV"] = _env
-    load_dotenv()
-    load_dotenv(f".env.{_env}")
-    # Always set database from env so "dev" → rag_dev (avoids .env typo e.g. CHROMA_DATABASE=rag)
-    if len(sys.argv) >= 4 and sys.argv[2] == "save":
-        os.environ["CHROMA_DATABASE"] = sys.argv[3]
-    else:
-        os.environ["CHROMA_DATABASE"] = f"rag_{_env}"
+    setup_cli_env()
 else:
     load_dotenv()
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
-from langchain_chroma import Chroma
 
 from config import (
-    PROJECT_ROOT,
     DATA_DIR,
+    FILE_TO_COLLECTION,
+    PROJECT_ROOT,
     CHUNK_SIZE,
     CHUNK_OVERLAP,
     SEPARATORS,
-    EMBEDDING_MODEL,
-    CHROMA_SETTINGS,
-    get_chroma_client,
 )
+from chroma_ingest import upsert_chroma
 
 
 # ----------------------------
@@ -90,36 +78,74 @@ def chunk_text(text: str, source: str) -> list:
 
 
 # ----------------------------
-# Embed + Save (Chroma Cloud)
+# Corpus loading (JSON)
 # ----------------------------
-def upsert_chroma(docs: list):
-    embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
-    chroma_client = get_chroma_client()
-
-    vectordb = Chroma(
-        client=chroma_client,
-        collection_name=CHROMA_SETTINGS["collection_name"],
-        embedding_function=embeddings,
-    )
-
-    vectordb.add_documents(docs)
-    return vectordb
+FILES_JSON = DATA_DIR / "files.json"
 
 
-# ----------------------------
-# Corpus loading
-# ----------------------------
+def _items_from_data(data: list | dict) -> list:
+    """Normalize JSON root to a list of items."""
+    if isinstance(data, list):
+        return data
+    items = data.get("files", data.get("documents", [data]))
+    return items if isinstance(items, list) else [items]
+
+
+def _text_from_item(item: str | dict, index: int, base_source: str) -> tuple[str, str]:
+    """Extract (text, source) from a JSON item."""
+    default_source = f"{base_source}::{index}"
+    if isinstance(item, str):
+        return item, default_source
+    if isinstance(item, dict):
+        text = item.get("text") or item.get("content") or item.get("body")
+        if text is None and ("q" in item or "a" in item):
+            text = " ".join(str(item.get(k, "")) for k in ("q", "a") if item.get(k))
+        if text is None:
+            text = json.dumps(item, ensure_ascii=False)
+        source = item.get("id") or item.get("source") or default_source
+        return str(text), str(source)
+    return str(item), default_source
+
+
+def _docs_from_items(items: list, base_source: str) -> list:
+    """Chunk a list of JSON items into Documents."""
+    docs = []
+    for i, item in enumerate(items):
+        text, source = _text_from_item(item, i, base_source)
+        docs.extend(chunk_text(normalize_unicode(text), source=source))
+    return docs
+
+
 def load_corpus() -> list:
-    """Load and chunk all data files. Returns list of Documents with chunk_id metadata."""
+    """Load from data/files.json or all data/*.json; chunk and return Documents (single collection)."""
+    if FILES_JSON.exists():
+        data = json.loads(read_utf8(FILES_JSON))
+        return _docs_from_items(_items_from_data(data), "data/files.json")
     if not DATA_DIR.exists():
         return []
     all_docs = []
-    for txt_file in sorted(DATA_DIR.glob("*.txt")):
-        raw = read_utf8(txt_file)
-        clean = normalize_unicode(raw)
-        docs = chunk_text(clean, source=str(txt_file.relative_to(PROJECT_ROOT)))
-        all_docs.extend(docs)
+    for path in sorted(DATA_DIR.glob("*.json")):
+        data = json.loads(read_utf8(path))
+        base = str(path.relative_to(PROJECT_ROOT))
+        all_docs.extend(_docs_from_items(_items_from_data(data), base))
     return all_docs
+
+
+def load_corpus_by_collection() -> list[tuple[str, list]]:
+    """Load data/*.json; for each file mapped in FILE_TO_COLLECTION, yield (collection_name, docs)."""
+    if not DATA_DIR.exists():
+        return []
+    out = []
+    for path in sorted(DATA_DIR.glob("*.json")):
+        collection = FILE_TO_COLLECTION.get(path.name)
+        if not collection:
+            continue
+        data = json.loads(read_utf8(path))
+        base = str(path.relative_to(PROJECT_ROOT))
+        docs = _docs_from_items(_items_from_data(data), base)
+        if docs:
+            out.append((collection, docs))
+    return out
 
 
 # ----------------------------
@@ -128,13 +154,19 @@ def load_corpus() -> list:
 def run_ingest() -> None:
     env = os.getenv("ENV", "dev")
     print(f"📄 Environment: {env}")
-    print("📄 Loading and chunking documents...")
-    all_docs = load_corpus()
-    if not all_docs:
-        print("⚠️ No documents found in data/ — nothing to ingest.")
-        return
-    print(f"🧠 Embedding + saving ({len(all_docs)} chunks) to Chroma Cloud")
-    upsert_chroma(all_docs)
+    # Ingest by collection: profile.json → taixing_identity, resume.json → taixing_resume, qa.json → taixing_qa
+    by_collection = load_corpus_by_collection()
+    if not by_collection:
+        all_docs = load_corpus()
+        if not all_docs:
+            print("⚠️ No documents found in data/files.json or data/*.json — nothing to ingest.")
+            return
+        print(f"🧠 Embedding + saving ({len(all_docs)} chunks) to Chroma Cloud")
+        upsert_chroma(all_docs)
+    else:
+        for collection_name, docs in by_collection:
+            print(f"🧠 {collection_name}: {len(docs)} chunks → Chroma Cloud")
+            upsert_chroma(docs, collection_name=collection_name)
     print("✅ Ingest finished")
 
 
