@@ -32,7 +32,7 @@ from openai import OpenAI
 
 from chunk import chunk_text_tokens
 from config import Settings
-from db import ensure_unique_index, upsert_chunks
+from db import delete_chunks_by_source, ensure_unique_index, upsert_chunks
 from embed import embed_texts_openai
 from normalize import detect_file_type, normalize_document
 from state import load_state, save_state, should_skip_file, update_file_state
@@ -212,6 +212,10 @@ def ingest_folder(
             docs = build_docs_for_file(filepath, embed_client, settings)
             
             if docs:
+                source_id = docs[0]["source"]["source_id"]
+                deleted = delete_chunks_by_source(col, source_id)
+                if deleted:
+                    print(f"  Deleted {deleted} old chunks for {source_id}")
                 upsert_chunks(col, docs)
                 total_docs += len(docs)
                 

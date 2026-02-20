@@ -27,6 +27,16 @@ def ensure_unique_index(col) -> None:
         pass
 
 
+def delete_chunks_by_source(col, source_id: str) -> int:
+    """
+    Remove all chunks for a given source (e.g. filename).
+    Returns the number of documents deleted.
+    Call this before upserting when re-ingesting an updated file so old chunks don't remain.
+    """
+    result = col.delete_many({"source.source_id": source_id})
+    return result.deleted_count
+
+
 def upsert_chunks(col, docs: List[Dict[str, Any]]) -> None:
     """
     Bulk upsert chunks using stable _id.
