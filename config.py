@@ -26,6 +26,14 @@ def _env_int(key: str, default: str) -> int:
     return int(os.environ.get(key, default))
 
 
+def _env(key: str, default: str) -> str:
+    return os.environ.get(key, default)
+
+
+def _env_int(key: str, default: str) -> int:
+    return int(os.environ.get(key, default))
+
+
 @dataclass
 class Settings:
     mongodb_uri: str = field(default_factory=lambda: _env("MONGODB_URI", ""))
