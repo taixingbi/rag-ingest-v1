@@ -1,52 +1,29 @@
+"""
+Configuration loaded from environment (.env).
+"""
+
+from dataclasses import dataclass
 import os
-from pathlib import Path
 
-# ======================
-# Paths
-# ======================
-ENV = os.getenv("ENV", "dev")
-PROJECT_ROOT = Path(__file__).resolve().parent
-DATA_DIR = PROJECT_ROOT / "data"
+from dotenv import load_dotenv
 
-# ======================
-# Chunking
-# ======================
-CHUNK_SIZE = 2200  # chars ≈ 800–1200 tokens
-CHUNK_OVERLAP = 300
-SEPARATORS = ("\n\n", "\n", "。", ".", "！", "!", "？", "?", ";", "；", ",", "，", " ", "")
-
-# ======================
-# Embedding
-# ======================
-EMBEDDING_MODEL = "text-embedding-3-small"
-
-# ======================
-# Chroma (cloud) — from .env: CHROMA_API_KEY_{ENV}, CHROMA_TENANT_{ENV}, CHROMA_DATABASE_{ENV}
-# ======================
-_env_upper = ENV.upper()
-CHROMA_API_KEY = os.getenv("CHROMA_API_KEY") or os.getenv(f"CHROMA_API_KEY_{_env_upper}")
-CHROMA_TENANT = os.getenv("CHROMA_TENANT") or os.getenv(f"CHROMA_TENANT_{_env_upper}")
-CHROMA_DATABASE = os.getenv("CHROMA_DATABASE") or os.getenv(f"CHROMA_DATABASE_{_env_upper}") or f"rag_{ENV}"
-CHROMA_SETTINGS = {
-    "api_key": CHROMA_API_KEY,
-    "tenant": CHROMA_TENANT,
-    "database": CHROMA_DATABASE,
-    "collection_name": "tb_all",
-}
-
-# Per-file collection mapping (data/*.json → Chroma collection)
-FILE_TO_COLLECTION = {
-    "profile.json": "taixing_identity",
-    "resume.json": "taixing_resume",
-    "qa.json": "taixing_qa",
-}
+load_dotenv()
 
 
-def get_chroma_client():
-    """Create Chroma Cloud client from config."""
-    import chromadb
-    return chromadb.CloudClient(
-        api_key=CHROMA_API_KEY,
-        tenant=CHROMA_TENANT,
-        database=CHROMA_DATABASE,
-    )
+@dataclass
+class Settings:
+    mongodb_uri: str = os.environ.get("MONGODB_URI", "")
+    mongodb_db: str = os.environ.get("MONGODB_DB", "rag")
+    mongodb_collection: str = os.environ.get("MONGODB_COLLECTION", "rag_chunks")
+
+    openai_api_key: str = os.environ.get("OPENAI_API_KEY", "")
+    embed_model: str = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+
+    # Chunking (token-based preferred, char-based fallback)
+    chunk_tokens: int = int(os.environ.get("CHUNK_TOKENS", "1000"))
+    overlap_tokens: int = int(os.environ.get("OVERLAP_TOKENS", "150"))
+    chunk_chars: int = int(os.environ.get("CHUNK_CHARS", "5000"))
+    overlap_chars: int = int(os.environ.get("OVERLAP_CHARS", "800"))
+
+    # Ingest (batch size for embeddings API)
+    batch_size: int = int(os.environ.get("BATCH_SIZE", "64"))
