@@ -1,6 +1,12 @@
-# RAG Ingest
+# RAG Ingest - MongoDB Atlas Vector Search
 
-Index `data/*.txt` into Chroma Cloud (dense embeddings only). Collection name: `tb_all`.
+Local ingestion pipeline that reads files (JSON/MD/PDF), chunks them, computes embeddings, and upserts into MongoDB Atlas Vector Search.
+
+## Architecture
+
+- **Mac mini (local)**: Reads files → chunks → computes embeddings (OpenAI) → upserts to Atlas
+- **MongoDB Atlas**: Stores text + metadata + embedding vector with Vector Search index
+
 
 [Chroma dashboard](https://www.trychroma.com/hunter)
 
@@ -10,41 +16,121 @@ Index `data/*.txt` into Chroma Cloud (dense embeddings only). Collection name: `
 ```bash
 python3.11 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip 
 pip install -r requirements.txt
+
+# Optional: For PDF support
+pip install pdfplumber
 ```
 
-Create `.env` with per-env Chroma vars: `CHROMA_API_KEY_DEV`, `CHROMA_TENANT_DEV`, `CHROMA_DATABASE_DEV` (and `_QA`, `_PROD` for other envs). Set `OPENAI_API_KEY` for embeddings.
+## Configuration (.env)
+
+```bash
+MONGODB_URI="mongodb+srv://<user>:<pass>@<cluster>/<db>?retryWrites=true&w=majority"
+MONGODB_DB="rag"
+MONGODB_COLLECTION="rag_chunks"
+OPENAI_API_KEY="sk-..."
+OPENAI_EMBED_MODEL="text-embedding-3-small"  # or text-embedding-3-large
+CHUNK_TOKENS=1000
+OVERLAP_TOKENS=150
+BATCH_SIZE=64
+```
 
 ## Usage
 
-**Ingest** — load, chunk, embed, and send to Chroma Cloud:
-
 ```bash
-python ingest.py dev    # → rag_dev
-python ingest.py qa     # → rag_qa
-python ingest.py prod   # → rag_prod
+# Ingest all supported files in data/ directory
+python ingest.py
+
+# Ingest specific pattern
+python ingest.py "data/**/*.json"
+
+# Force re-ingest all files (ignore state.json)
+python ingest.py --force
 ```
 
-Optional: `python ingest.py dev save <database_name>` to override the database.
+## Data Model
 
-## GitHub Actions
+Collection: `rag.rag_chunks`
 
-On push, ingest runs by branch (see `.github/workflows/ingest.yml` if present):
+Each chunk document:
+```json
+{
+  "_id": "sha256(source_id + chunk_id + content_hash)",
+  "chunk_id": "profile.json::chunk_0003",
+  "source": {
+    "source_id": "profile.json",
+    "path": "data/profile.json",
+    "type": "json",
+    "mtime": "2026-02-19T12:00:00Z"
+  },
+  "text": "chunk text...",
+  "metadata": {
+    "title": "Profile",
+    "section": "chunk_0",
+    "tags": ["profile", "resume", "candidate"],
+    "lang": "en"
+  },
+  "embedding": [0.0123, ...],
+  "embedding_model": "text-embedding-3-small",
+  "dims": 1536,
+  "created_at": "2026-02-19T12:01:00Z",
+  "updated_at": "2026-02-19T12:01:00Z"
+}
+```
 
-| Branch       | Command               |
-|-------------|------------------------|
-| `feature/**`| `python ingest.py dev` |
-| `qa`        | `python ingest.py qa`  |
-| `main`      | `python ingest.py prod`|
+## MongoDB Atlas Vector Search Index
 
-Repo secrets: `OPENAI_API_KEY`, `CHROMA_API_KEY`, `CHROMA_TENANT`.
+After ingestion, create a Vector Search index in Atlas UI:
 
-## Pipeline
+1. Go to Atlas → Search → Create Search Index
+2. Select "JSON Editor"
+3. Configure:
+```json
+{
+  "fields": [
+    {
+      "type": "knnVector",
+      "path": "embedding",
+      "numDimensions": 1536,
+      "similarity": "cosine"
+    },
+    {
+      "type": "string",
+      "path": "source.source_id"
+    },
+    {
+      "type": "string",
+      "path": "metadata.tags"
+    },
+    {
+      "type": "string",
+      "path": "text"
+    }
+  ]
+}
+```
 
-1. **Ingest** — Read `data/*.txt`, normalize, chunk, embed (OpenAI), upsert to Chroma Cloud collection `tb_all`.
+## Incremental Ingestion
 
+The pipeline uses `state.json` to track file hashes and modification times. Files that haven't changed are automatically skipped. Delete `state.json` to reset or use `--force` flag to re-ingest everything.
 
+## Supported File Types
 
+- **JSON**: Automatically normalized (sorted keys, stable format)
+- **Markdown (.md)**: Text extracted as-is
+- **Text (.txt)**: Plain text files
+- **PDF**: Requires `pdfplumber` package
 
-### resume
-Convert Resume Into Structured Knowledge as json with download link
+## MongoDB Collections
+
+Use dev/qa/prod via: `python main.py dev | qa | prod`. Or set in `.env`:
+```
+MONGODB_COLLECTION=collection_taixingbi_dev
+MONGODB_COLLECTION=collection_taixingbi_qa
+MONGODB_COLLECTION=collection_taixingbi_prod
+```
+
+## Links
+
+- [MongoDB Atlas Dashboard](https://cloud.mongodb.com/v2/5f8d901d427b1f41a5daf2c0#/explorer/6994e45919851ad449223e8a/db_hunt/collection_taixingbi_dev/find)
