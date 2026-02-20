@@ -36,15 +36,22 @@ BATCH_SIZE=64
 ## Usage
 
 ```bash
-# Ingest all supported files in data/ directory
-python ingest.py
+# Ingest to dev collection on remote (Atlas)
+python main.py dev remote
 
-# Ingest specific pattern
-python ingest.py "data/**/*.json"
+# Ingest to dev collection on local MongoDB (Mac)
+python main.py dev local
 
-# Force re-ingest all files (ignore state.json)
-python ingest.py --force
+# Other envs: qa, prod
+python main.py qa remote
+python main.py prod local
+
+# Optional: file pattern and --force
+python main.py dev remote "data/**/*.json"
+python main.py dev local --force
 ```
+
+Order: `[dev|qa|prod] [local|remote] [pattern] [--force]`
 
 ## Data Model
 
