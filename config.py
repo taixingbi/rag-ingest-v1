@@ -1,8 +1,9 @@
 """
 Configuration loaded from environment (.env).
+Values are read when Settings() is created so CLI args (dev/qa/prod, local/remote) take effect.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 
 from dotenv import load_dotenv
@@ -17,20 +18,28 @@ FILE_TO_COLLECTION = {
 }
 
 
+def _env(key: str, default: str) -> str:
+    return os.environ.get(key, default)
+
+
+def _env_int(key: str, default: str) -> int:
+    return int(os.environ.get(key, default))
+
+
 @dataclass
 class Settings:
-    mongodb_uri: str = os.environ.get("MONGODB_URI", "")
-    mongodb_db: str = os.environ.get("MONGODB_DB", "rag")
-    mongodb_collection: str = os.environ.get("MONGODB_COLLECTION", "rag_chunks")
+    mongodb_uri: str = field(default_factory=lambda: _env("MONGODB_URI", ""))
+    mongodb_db: str = field(default_factory=lambda: _env("MONGODB_DB", "rag"))
+    mongodb_collection: str = field(default_factory=lambda: _env("MONGODB_COLLECTION", "rag_chunks"))
 
-    openai_api_key: str = os.environ.get("OPENAI_API_KEY", "")
-    embed_model: str = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+    openai_api_key: str = field(default_factory=lambda: _env("OPENAI_API_KEY", ""))
+    embed_model: str = field(default_factory=lambda: _env("OPENAI_EMBED_MODEL", "text-embedding-3-small"))
 
     # Chunking (token-based preferred, char-based fallback)
-    chunk_tokens: int = int(os.environ.get("CHUNK_TOKENS", "1000"))
-    overlap_tokens: int = int(os.environ.get("OVERLAP_TOKENS", "150"))
-    chunk_chars: int = int(os.environ.get("CHUNK_CHARS", "5000"))
-    overlap_chars: int = int(os.environ.get("OVERLAP_CHARS", "800"))
+    chunk_tokens: int = field(default_factory=lambda: _env_int("CHUNK_TOKENS", "1000"))
+    overlap_tokens: int = field(default_factory=lambda: _env_int("OVERLAP_TOKENS", "150"))
+    chunk_chars: int = field(default_factory=lambda: _env_int("CHUNK_CHARS", "5000"))
+    overlap_chars: int = field(default_factory=lambda: _env_int("OVERLAP_CHARS", "800"))
 
     # Ingest (batch size for embeddings API)
-    batch_size: int = int(os.environ.get("BATCH_SIZE", "64"))
+    batch_size: int = field(default_factory=lambda: _env_int("BATCH_SIZE", "64"))

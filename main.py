@@ -253,15 +253,27 @@ if __name__ == "__main__":
     import os
     import sys
 
-    # Parse: python main.py [dev|qa|prod] [pattern] [--force]
+    # Parse: python main.py [dev|qa|prod] [local|remote] [pattern] [--force]
     COLLECTIONS = {"dev": "collection_taixingbi_dev", "qa": "collection_taixingbi_qa", "prod": "collection_taixingbi_prod"}
+    TARGETS = ("local", "remote")
     args = [a for a in sys.argv[1:] if a != "--force"]
     skip_unchanged = "--force" not in sys.argv
 
+    # 1) env: dev | qa | prod
     env_arg = args[0] if args and args[0] in COLLECTIONS else None
     if env_arg:
         os.environ["MONGODB_COLLECTION"] = COLLECTIONS[env_arg]
         args = args[1:]
+
+    # 2) target: local | remote (pick which MongoDB)
+    target_arg = args[0] if args and args[0] in TARGETS else None
+    if target_arg == "local":
+        os.environ["MONGODB_URI"] = os.environ.get("MONGODB_URI_LOCAL", "mongodb://localhost:27017")
+        args = args[1:]
+    elif target_arg == "remote":
+        # keep existing MONGODB_URI from .env (Atlas)
+        args = args[1:]
+
     pattern = args[0] if args else "data/**/*"
 
     ingest_folder(pattern, skip_unchanged=skip_unchanged)
